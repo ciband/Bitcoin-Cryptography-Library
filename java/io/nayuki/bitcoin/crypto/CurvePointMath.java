@@ -26,23 +26,23 @@ public final class CurvePointMath {
 	
 	/*---- Arithmetic functions ----*/
 	
-	// Doubles the given curve point. Requires 72 words of temporary space.
+	// Doubles the given curve point. Requires 64 words of temporary space.
 	// The resulting point is usually not normalized. Constant-time with respect to the point.
 	public static void twice(int[] val, int pOff, int tempOff) {
 		/* 
-		 * (Derived from http://en.wikibooks.org/wiki/Cryptography/Prime_Curve/Standard_Projective_Coordinates)
+		 * (See https://www.nayuki.io/page/elliptic-curve-point-addition-in-projective-coordinates)
 		 * Algorithm pseudocode:
-		 * if (p == ZERO || p.y == 0)
-		 *   p = ZERO
+		 * if (this == ZERO || y == 0)
+		 *   this = ZERO
 		 * else {
 		 *   a = 0 (curve parameter)
-		 *   s = 2 * p.y * p.z
-		 *   t = 2 * p.x * p.y * s
-		 *   u = 3 * p.x^2 + a * p.z^2
-		 *   v = u^2 - 2 * t
-		 *   p.x = s * v
-		 *   p.y = u * (t - v) - 2 * (p.y * s)^2
-		 *   p.z = s^3
+		 *   t = 3 * x^2 + a * z^2
+		 *   u = 2 * y * z
+		 *   v = 2 * u * x * y
+		 *   w = t^2 - 2 * v
+		 *   x' = u * w
+		 *   y' = t * (v - w) - 2 * (u * y)^2
+		 *   z' = u^3
 		 * }
 		 */
 		
@@ -51,71 +51,76 @@ public final class CurvePointMath {
 		assert val.length - tempOff >= TWICE_TEMP_WORDS;
 		
 		int zeroResult = CurvePointMath.isZero(val, pOff) | Int256Math.isZero(val, pOff + YCOORD);
-		int newTempOff = tempOff + 4 * NUM_WORDS;
+		int newTempOff = tempOff + 3 * NUM_WORDS;
 		
-		int sOff = tempOff + 0 * NUM_WORDS;
-		Int256Math.fieldMultiply(val, pOff + YCOORD, pOff + ZCOORD, sOff, newTempOff);
-		Int256Math.fieldMultiply2(val, sOff, sOff, newTempOff);
+		int uOff = tempOff + 0 * NUM_WORDS;
+		Int256Math.fieldMultiply(val, pOff + YCOORD, pOff + ZCOORD, uOff, newTempOff);
+		Int256Math.fieldMultiply2(val, uOff, uOff, newTempOff);
 		
-		int tOff = tempOff + 1 * NUM_WORDS;
-		Int256Math.fieldMultiply2(val, sOff, tOff, newTempOff);
-		Int256Math.fieldMultiply(val, tOff, pOff + XCOORD, tOff, newTempOff);
-		Int256Math.fieldMultiply(val, tOff, pOff + YCOORD, tOff, newTempOff);
+		int vOff = tempOff + 1 * NUM_WORDS;
+		Int256Math.fieldMultiply(val, uOff, pOff + XCOORD, vOff, newTempOff);
+		Int256Math.fieldMultiply(val, vOff, pOff + YCOORD, vOff, newTempOff);
+		Int256Math.fieldMultiply2(val, vOff, vOff, newTempOff);
 		
-		int uOff = tempOff + 2 * NUM_WORDS;
-		int vOff = tempOff + 3 * NUM_WORDS;
-		Int256Math.fieldSquare(val, pOff + XCOORD, uOff, newTempOff);
-		Int256Math.fieldMultiply2(val, uOff, vOff, newTempOff);
-		Int256Math.fieldAdd(val, uOff, vOff, uOff, newTempOff);
-		Int256Math.fieldSquare(val, uOff, vOff, newTempOff);
-		Int256Math.fieldSubtract(val, vOff, tOff, vOff, newTempOff);
-		Int256Math.fieldSubtract(val, vOff, tOff, vOff, newTempOff);
+		Int256Math.fieldSquare(val, pOff + XCOORD, pOff + XCOORD, newTempOff);
+		int tOff = tempOff + 2 * NUM_WORDS;
+		Int256Math.fieldMultiply2(val, pOff + XCOORD, tOff, newTempOff);
+		Int256Math.fieldAdd(val, tOff, pOff + XCOORD, tOff, newTempOff);
 		
-		// Set x and y
-		Int256Math.fieldMultiply(val, sOff, vOff, pOff + XCOORD, newTempOff);
-		Int256Math.fieldSquare(val, sOff, pOff + ZCOORD, newTempOff);
-		Int256Math.fieldMultiply(val, pOff + ZCOORD, sOff, pOff + ZCOORD, newTempOff);
+		int wOff = pOff + ZCOORD;  // Reuses space
+		Int256Math.fieldSquare(val, tOff, wOff, newTempOff);
+		Int256Math.fieldMultiply2(val, vOff, pOff + XCOORD, newTempOff);
+		Int256Math.fieldSubtract(val, wOff, pOff + XCOORD, wOff, newTempOff);
 		
-		// Set z
-		Int256Math.fieldMultiply(val, pOff + YCOORD, sOff, pOff + YCOORD, newTempOff);
+		Int256Math.fieldSubtract(val, vOff, wOff, pOff + XCOORD, newTempOff);
+		Int256Math.fieldMultiply(val, pOff + XCOORD, tOff, pOff + XCOORD, newTempOff);
+		Int256Math.fieldMultiply(val, pOff + YCOORD, uOff, pOff + YCOORD, newTempOff);
 		Int256Math.fieldSquare(val, pOff + YCOORD, pOff + YCOORD, newTempOff);
 		Int256Math.fieldMultiply2(val, pOff + YCOORD, pOff + YCOORD, newTempOff);
-		Int256Math.fieldSubtract(val, tOff, vOff, tOff, newTempOff);
-		Int256Math.fieldMultiply(val, uOff, tOff, uOff, newTempOff);
-		Int256Math.fieldSubtract(val, uOff, pOff + YCOORD, pOff + YCOORD, newTempOff);
+		Int256Math.fieldSubtract(val, pOff + XCOORD, pOff + YCOORD, pOff + YCOORD, newTempOff);
+		
+		Int256Math.fieldMultiply(val, uOff, wOff, pOff + XCOORD, newTempOff);
+		
+		Int256Math.fieldSquare(val, uOff, pOff + ZCOORD, newTempOff);
+		Int256Math.fieldMultiply(val, uOff, pOff + ZCOORD, pOff + ZCOORD, newTempOff);
 		
 		System.arraycopy(ZERO_POINT, 0, val, tempOff, POINT_WORDS);  // Reuses space
 		CurvePointMath.replace(val, pOff, tempOff, zeroResult);
 	}
 	
-	public static final int TWICE_TEMP_WORDS = 4 * NUM_WORDS + Int256Math.FIELD_MULTIPLY_TEMP_WORDS;
+	public static final int TWICE_TEMP_WORDS = 3 * NUM_WORDS + Int256Math.FIELD_MULTIPLY_TEMP_WORDS;
 	
 	
-	// Adds the point q into point p. Requires 144 words of temporary space.
+	// Adds the point q into point p. Requires 112 words of temporary space.
 	// The resulting point is usually not normalized. Constant-time with respect to both points.
 	public static void add(int[] val, int pOff, int qOff, int tempOff) {
 		/* 
-		 * (Derived from http://en.wikibooks.org/wiki/Cryptography/Prime_Curve/Standard_Projective_Coordinates)
+		 * (See https://www.nayuki.io/page/elliptic-curve-point-addition-in-projective-coordinates)
 		 * Algorithm pseudocode:
 		 * if (p == ZERO)
 		 *   p = q
 		 * else if (q == ZERO)
 		 *   p = p
 		 * else {
+		 *   t0 = p.y * q.z
+		 *   t1 = q.y * p.z
 		 *   u0 = p.x * q.z
 		 *   u1 = q.x * p.z
-		 *   v0 = p.y * q.z
-		 *   v1 = q.y * p.z
-		 *   if (v0 == v1)  // Same y coordinates
-		 *     p = (u0 != u1) ? ZERO : twice(p)
-		 *   else {
+		 *   if (u0 == u1) {  // Same x coordinates
+		 *     if (t0 == t1)  // Same y coordinates
+		 *       p = twice(p)
+		 *     else
+		 *       p = ZERO
+		 *   } else {
+		 *     t = t0 - t1
 		 *     u = u0 - u1
-		 *     v = v0 - v1
-		 *     w = p.z * q.z
-		 *     t = w * v^2 - (u0 + u1) * u^2
-		 *     p.x = u * t
-		 *     p.y = v * (u0 * u^2 - t) - v0 * u^3
-		 *     p.z = u^3 * w
+		 *     u2 = u^2
+		 *     v = p.z * q.z
+		 *     w = t^2 * v - u2 * (u0 + u1)
+		 *     p.x' = u * w
+		 *     u3 = u2 * u
+		 *     p.y' = t * (u0 * u2 - w) - t0 * u3
+		 *     p.z' = u3 * v
 		 *   }
 		 * }
 		 */
@@ -127,64 +132,59 @@ public final class CurvePointMath {
 		
 		int pIsZero = CurvePointMath.isZero(val, pOff);
 		int qIsZero = CurvePointMath.isZero(val, qOff);
-		CurvePointMath.replace(val, pOff, qOff, pIsZero);
+		int rOff = tempOff + 0 * NUM_WORDS;
+		System.arraycopy(val, pOff, val, rOff, POINT_WORDS);
+		CurvePointMath.twice(val, rOff, tempOff + POINT_WORDS);
+		CurvePointMath.replace(val, rOff, pOff, qIsZero);
+		CurvePointMath.replace(val, rOff, qOff, pIsZero);
 		
-		int twicedOff = tempOff + 0 * NUM_WORDS;
-		System.arraycopy(val, pOff, val, twicedOff, NUM_WORDS);
-		CurvePointMath.twice(val, twicedOff, tempOff + POINT_WORDS);
-		
-		int newTempOff = tempOff + 13 * NUM_WORDS;
+		int newTempOff = tempOff + 9 * NUM_WORDS;
 		int u0Off = tempOff + 3 * NUM_WORDS;
 		int u1Off = tempOff + 4 * NUM_WORDS;
-		int v0Off = tempOff + 5 * NUM_WORDS;
-		int v1Off = tempOff + 6 * NUM_WORDS;
+		int t0Off = tempOff + 5 * NUM_WORDS;
+		int t1Off = pOff + XCOORD;  // Reuses space
 		Int256Math.fieldMultiply(val, pOff + XCOORD, qOff + ZCOORD, u0Off, newTempOff);
 		Int256Math.fieldMultiply(val, qOff + XCOORD, pOff + ZCOORD, u1Off, newTempOff);
-		Int256Math.fieldMultiply(val, pOff + YCOORD, qOff + ZCOORD, v0Off, newTempOff);
-		Int256Math.fieldMultiply(val, qOff + YCOORD, pOff + ZCOORD, v1Off, newTempOff);
-		
+		Int256Math.fieldMultiply(val, pOff + YCOORD, qOff + ZCOORD, t0Off, newTempOff);
+		Int256Math.fieldMultiply(val, qOff + YCOORD, pOff + ZCOORD, t1Off, newTempOff);
 		int sameX = Int256Math.equalTo(val, u0Off, u1Off);
-		int sameY = Int256Math.equalTo(val, v0Off, v1Off);
+		int sameY = Int256Math.equalTo(val, t0Off, t1Off);
+		System.arraycopy(ZERO_POINT, 0, val, tempOff + 6 * NUM_WORDS, POINT_WORDS);
+		CurvePointMath.replace(val, rOff, tempOff + 6 * NUM_WORDS, (pIsZero ^ 1) & (qIsZero ^ 1) & sameX & (sameY ^ 1));
 		
-		int uOff = tempOff + 7 * NUM_WORDS;
-		int vOff = tempOff + 8 * NUM_WORDS;
-		int wOff = tempOff + 9 * NUM_WORDS;
+		int tOff = pOff + YCOORD;  // Reuses space
+		int uOff = tempOff + 6 * NUM_WORDS;
+		int u2Off = tempOff + 7 * NUM_WORDS;
+		int vOff = pOff + ZCOORD;  // Reuses space
+		Int256Math.fieldSubtract(val, t0Off, t1Off, tOff, newTempOff);
 		Int256Math.fieldSubtract(val, u0Off, u1Off, uOff, newTempOff);
-		Int256Math.fieldSubtract(val, v0Off, v1Off, vOff, newTempOff);
-		Int256Math.fieldMultiply(val, pOff + ZCOORD, qOff + ZCOORD, wOff, newTempOff);
-		
-		int u2Off = tempOff + 10 * NUM_WORDS;
-		int u3Off = tempOff + 11 * NUM_WORDS;
 		Int256Math.fieldSquare(val, uOff, u2Off, newTempOff);
-		Int256Math.fieldMultiply(val, uOff, u2Off, u3Off, newTempOff);
+		Int256Math.fieldMultiply(val, pOff + ZCOORD, qOff + ZCOORD, vOff, newTempOff);
 		
+		int wOff = tempOff + 8 * NUM_WORDS;
+		Int256Math.fieldSquare(val, tOff, wOff, newTempOff);
+		Int256Math.fieldMultiply(val, wOff, vOff, wOff, newTempOff);
 		Int256Math.fieldAdd(val, u0Off, u1Off, u1Off, newTempOff);
 		Int256Math.fieldMultiply(val, u1Off, u2Off, u1Off, newTempOff);
-		int tOff = tempOff + 12 * NUM_WORDS;
-		Int256Math.fieldSquare(val, vOff, tOff, newTempOff);
-		Int256Math.fieldMultiply(val, wOff, tOff, tOff, newTempOff);
-		Int256Math.fieldSubtract(val, tOff, u1Off, tOff, newTempOff);
+		Int256Math.fieldSubtract(val, wOff, u1Off, wOff, newTempOff);
 		
-		int assign = (pIsZero | qIsZero | sameY) ^ 1;
-		Int256Math.fieldMultiply(val, uOff, tOff, uOff, newTempOff);
-		Int256Math.replace(val, pOff + XCOORD, uOff, assign);
-		Int256Math.fieldMultiply(val, wOff, u3Off, wOff, newTempOff);
-		Int256Math.replace(val, pOff + ZCOORD, wOff, assign);
+		Int256Math.fieldMultiply(val, uOff, wOff, pOff + XCOORD, newTempOff);
+		
+		int u3Off = u1Off;  // Reuses space
+		Int256Math.fieldMultiply(val, uOff, u2Off, u3Off, newTempOff);
+		
 		Int256Math.fieldMultiply(val, u0Off, u2Off, u0Off, newTempOff);
-		Int256Math.fieldSubtract(val, u0Off, tOff, tOff, newTempOff);
-		Int256Math.fieldMultiply(val, tOff, vOff, tOff, newTempOff);
-		Int256Math.fieldMultiply(val, v0Off, u3Off, v0Off, newTempOff);
-		Int256Math.fieldSubtract(val, tOff, v0Off, tOff, newTempOff);
-		Int256Math.replace(val, pOff + YCOORD, tOff, assign);
+		Int256Math.fieldSubtract(val, u0Off, wOff, u0Off, newTempOff);
+		Int256Math.fieldMultiply(val, tOff, u0Off, tOff, newTempOff);
+		Int256Math.fieldMultiply(val, t0Off, u3Off, t0Off, newTempOff);
+		Int256Math.fieldSubtract(val, tOff, t0Off, pOff + YCOORD, newTempOff);
 		
-		int cond = (pIsZero ^ 1) & (qIsZero ^ 1) & sameY;
-		int zeroPointOff = twicedOff + POINT_WORDS;
-		System.arraycopy(ZERO_POINT, 0, val, zeroPointOff, POINT_WORDS);  // Reuses space
-		CurvePointMath.replace(val, pOff, zeroPointOff, cond & (sameX ^ 1));
-		CurvePointMath.replace(val, pOff, twicedOff, cond & sameX);
+		Int256Math.fieldMultiply(val, vOff, u3Off, pOff + ZCOORD, newTempOff);
+		
+		CurvePointMath.replace(val, pOff, rOff, pIsZero | qIsZero | sameX);
 	}
 	
-	public static final int ADD_TEMP_WORDS = 13 * NUM_WORDS + Int256Math.FIELD_MULTIPLY_TEMP_WORDS;
+	public static final int ADD_TEMP_WORDS = 9 * NUM_WORDS + Int256Math.FIELD_MULTIPLY_TEMP_WORDS;
 	
 	
 	// Multiplies the given point by the given unsigned integer. The resulting point is usually not normalized.
